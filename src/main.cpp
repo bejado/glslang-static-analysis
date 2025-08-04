@@ -1,8 +1,8 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <vector>
 
+#include "glslang/MachineIndependent/localintermediate.h"
 #include "glslang/Public/ShaderLang.h"
 #include "glslang/Public/ResourceLimits.h"
 #include "glslang/Include/intermediate.h"
@@ -17,28 +17,34 @@ public:
         std::cout << "Symbol: " << node->getName().c_str() << std::endl;
     }
 
-    void visitBinary(glslang::TIntermBinary* node) override {
+    bool visitBinary(glslang::TVisit visit, glslang::TIntermBinary* node) override {
         printIndent();
-        std::cout << "Binary Op: " << node->getOpName() << std::endl;
+        std::cout << "Binary Op: " << node->getOp() << std::endl;
         mIndent++;
-        TIntermTraverser::visitBinary(node);
+        TIntermTraverser::visitBinary(visit, node);
         mIndent--;
+
+        return true;
     }
 
-    void visitUnary(glslang::TIntermUnary* node) override {
+    bool visitUnary(glslang::TVisit visit, glslang::TIntermUnary* node) override {
         printIndent();
-        std::cout << "Unary Op: " << node->getOpName() << std::endl;
+        std::cout << "Unary Op: " << node->getOp() << std::endl;
         mIndent++;
-        TIntermTraverser::visitUnary(node);
+        TIntermTraverser::visitUnary(visit, node);
         mIndent--;
+
+        return true;
     }
 
-    void visitAggregate(glslang::TIntermAggregate* node) override {
+    bool visitAggregate(glslang::TVisit visit, glslang::TIntermAggregate* node) override {
         printIndent();
-        std::cout << "Aggregate: " << node->getOpName() << std::endl;
+        std::cout << "Aggregate: " << node->getOp() << std::endl;
         mIndent++;
-        TIntermTraverser::visitAggregate(node);
+        TIntermTraverser::visitAggregate(visit, node);
         mIndent--;
+
+        return true;
     }
 
     void visitConstantUnion(glslang::TIntermConstantUnion* node) override {
@@ -46,7 +52,8 @@ public:
         std::cout << "Constant: ";
         switch (node->getBasicType()) {
             case glslang::EbtFloat:
-                std::cout << node->getConstArray()[0].getFConst();
+            case glslang::EbtDouble:
+                std::cout << node->getConstArray()[0].getDConst();
                 break;
             case glslang::EbtInt:
                 std::cout << node->getConstArray()[0].getIConst();
@@ -89,12 +96,14 @@ public:
         return false; // we traversed the children ourselves
     }
 
-    void visitBranch(glslang::TIntermBranch* node) override {
+    bool visitBranch(glslang::TVisit visit, glslang::TIntermBranch* node) override {
         printIndent();
-        std::cout << "Branch: " << node->getFlowOpName() << std::endl;
+        std::cout << "Branch: " << node->getFlowOp() << std::endl;
+
+        return true;
     }
 
-    void visitLoop(glslang::TIntermLoop* node) override {
+    bool visitLoop(glslang::TVisit visit, glslang::TIntermLoop* node) override {
         printIndent();
         std::cout << "Loop" << std::endl;
         mIndent++;
@@ -120,6 +129,8 @@ public:
             mIndent--;
         }
         mIndent--;
+
+        return true;
     }
 
 
@@ -206,7 +217,7 @@ int main(int argc, char** argv) {
     const int defaultVersion = 100;
 
     // Parse
-    if (!shader.parse(&glslang::DefaultTBuiltInResource, defaultVersion, false, messages)) {
+    if (!shader.parse(GetDefaultResources(), defaultVersion, false, messages)) {
         std::cerr << "Shader parsing failed:" << std::endl;
         std::cerr << shader.getInfoLog() << std::endl;
         std::cerr << shader.getInfoDebugLog() << std::endl;
@@ -215,7 +226,7 @@ int main(int argc, char** argv) {
     }
 
     // Get AST root
-    glslang::TIntermNode* root = shader.getIntermediate()->getTreeRoot();
+    TIntermNode* root = shader.getIntermediate()->getTreeRoot();
     if (!root) {
         std::cerr << "Failed to get AST root." << std::endl;
         glslang::FinalizeProcess();

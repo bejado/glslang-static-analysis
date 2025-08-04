@@ -16,4 +16,4 @@ FetchContent_MakeAvailable(glslang)
 
 add_executable(glsl_ast_printer src/main.cpp)
 
-target_link_libraries(glsl_ast_printer PRIVATE glslang)
+target_link_libraries(glsl_ast_printer PRIVATE glslang glslang-default-resource-limits)
