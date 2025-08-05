@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "glslang/MachineIndependent/localintermediate.h"
-#include "glslang/SPIRV/GlslangToSpv.h"
+#include "SPIRV/GlslangToSpv.h"
 #include "glslang/Public/ShaderLang.h"
 #include "glslang/Public/ResourceLimits.h"
 #include "glslang/Include/intermediate.h"
