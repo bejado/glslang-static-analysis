@@ -1,148 +1,13 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #include "glslang/MachineIndependent/localintermediate.h"
+#include "glslang/SPIRV/GlslangToSpv.h"
 #include "glslang/Public/ShaderLang.h"
 #include "glslang/Public/ResourceLimits.h"
 #include "glslang/Include/intermediate.h"
-
-// A simple AST traverser that prints the structure of the AST.
-class AstPrinter : public glslang::TIntermTraverser {
-public:
-    AstPrinter(int indent = 0) : TIntermTraverser(true, false, false), mIndent(indent) {}
-
-    void visitSymbol(glslang::TIntermSymbol* node) override {
-        printIndent();
-        std::cout << "Symbol: " << node->getName().c_str() << std::endl;
-    }
-
-    bool visitBinary(glslang::TVisit visit, glslang::TIntermBinary* node) override {
-        printIndent();
-        std::cout << "Binary Op: " << node->getOp() << std::endl;
-        mIndent++;
-        TIntermTraverser::visitBinary(visit, node);
-        mIndent--;
-
-        return true;
-    }
-
-    bool visitUnary(glslang::TVisit visit, glslang::TIntermUnary* node) override {
-        printIndent();
-        std::cout << "Unary Op: " << node->getOp() << std::endl;
-        mIndent++;
-        TIntermTraverser::visitUnary(visit, node);
-        mIndent--;
-
-        return true;
-    }
-
-    bool visitAggregate(glslang::TVisit visit, glslang::TIntermAggregate* node) override {
-        printIndent();
-        std::cout << "Aggregate: " << node->getOp() << std::endl;
-        mIndent++;
-        TIntermTraverser::visitAggregate(visit, node);
-        mIndent--;
-
-        return true;
-    }
-
-    void visitConstantUnion(glslang::TIntermConstantUnion* node) override {
-        printIndent();
-        std::cout << "Constant: ";
-        switch (node->getBasicType()) {
-            case glslang::EbtFloat:
-            case glslang::EbtDouble:
-                std::cout << node->getConstArray()[0].getDConst();
-                break;
-            case glslang::EbtInt:
-                std::cout << node->getConstArray()[0].getIConst();
-                break;
-            case glslang::EbtBool:
-                std::cout << node->getConstArray()[0].getBConst();
-                break;
-            default:
-                std::cout << "(unhandled type)";
-        }
-        std::cout << std::endl;
-    }
-
-    bool visitSelection(glslang::TVisit, glslang::TIntermSelection* node) override {
-        printIndent();
-        std::cout << "If" << std::endl;
-        mIndent++;
-        printIndent();
-        std::cout << "Condition:" << std::endl;
-        mIndent++;
-        node->getCondition()->traverse(this);
-        mIndent--;
-
-        if (node->getTrueBlock()) {
-            printIndent();
-            std::cout << "True Block:" << std::endl;
-            mIndent++;
-            node->getTrueBlock()->traverse(this);
-            mIndent--;
-        }
-
-        if (node->getFalseBlock()) {
-            printIndent();
-            std::cout << "False Block:" << std::endl;
-            mIndent++;
-            node->getFalseBlock()->traverse(this);
-            mIndent--;
-        }
-        mIndent--;
-        return false; // we traversed the children ourselves
-    }
-
-    bool visitBranch(glslang::TVisit visit, glslang::TIntermBranch* node) override {
-        printIndent();
-        std::cout << "Branch: " << node->getFlowOp() << std::endl;
-
-        return true;
-    }
-
-    bool visitLoop(glslang::TVisit visit, glslang::TIntermLoop* node) override {
-        printIndent();
-        std::cout << "Loop" << std::endl;
-        mIndent++;
-        if(node->getTest()) {
-            printIndent();
-            std::cout << "Test:" << std::endl;
-            mIndent++;
-            node->getTest()->traverse(this);
-            mIndent--;
-        }
-        if(node->getBody()) {
-            printIndent();
-            std::cout << "Body:" << std::endl;
-            mIndent++;
-            node->getBody()->traverse(this);
-            mIndent--;
-        }
-        if(node->getTerminal()) {
-            printIndent();
-            std::cout << "Terminal:" << std::endl;
-            mIndent++;
-            node->getTerminal()->traverse(this);
-            mIndent--;
-        }
-        mIndent--;
-
-        return true;
-    }
-
-
-private:
-    void printIndent() {
-        for (int i = 0; i < mIndent; ++i) {
-            std::cout << "  ";
-        }
-    }
-    int mIndent;
-};
-
 
 // From glslang/StandAlone/StandAlone.cpp
 // Helper to get the shader stage from the file extension.
@@ -183,11 +48,18 @@ EShLanguage FindLanguage(const std::string& name)
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <shader_file>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <shader_file> [output_file]" << std::endl;
         return 1;
     }
 
     std::string filename = argv[1];
+    std::string outfilename;
+
+    if (argc > 2) {
+        outfilename = argv[2];
+    } else {
+        outfilename = filename.substr(0, filename.find_last_of('.')) + ".spv";
+    }
 
     // Initialize glslang
     glslang::InitializeProcess();
@@ -225,18 +97,27 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Get AST root
-    TIntermNode* root = shader.getIntermediate()->getTreeRoot();
-    if (!root) {
-        std::cerr << "Failed to get AST root." << std::endl;
+    // Link the shader into a program
+    glslang::TProgram program;
+    program.addShader(&shader);
+    if (!program.link(messages)) {
+        std::cerr << "Shader linking failed:" << std::endl;
+        std::cerr << program.getInfoLog() << std::endl;
+        std::cerr << program.getInfoDebugLog() << std::endl;
         glslang::FinalizeProcess();
         return 1;
     }
 
-    // Print AST
-    std::cout << "AST for " << filename << ":" << std::endl;
-    AstPrinter printer;
-    root->traverse(&printer);
+    // Convert to SPIR-V
+    std::vector<unsigned int> spirv;
+    glslang::GlslangToSpv(*program.getIntermediate(stage), spirv);
+
+    // Write SPIR-V to file
+    std::ofstream outfile(outfilename, std::ios::binary);
+    outfile.write((const char*)spirv.data(), spirv.size() * sizeof(unsigned int));
+    outfile.close();
+
+    std::cout << "SPIR-V code exported to " << outfilename << std::endl;
 
     // Finalize glslang
     glslang::FinalizeProcess();
